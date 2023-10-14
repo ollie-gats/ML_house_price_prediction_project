@@ -8,12 +8,17 @@ import numpy as np
 
 path_test = './data/test.csv'
 path_sample_submission = './data/sample_submission.csv'
-data_test = pd.read_csv(path_test)
+data_test = pd.read_csv("C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Project_1/ML_house_price_prediction_project/data/test.csv")
 
 df = pd.DataFrame(data_test)
 df.drop('num_supermarkets', axis=1, inplace=True)
 df['num_rooms'] = df['num_rooms'].apply(lambda x: x if x<10 else np.nan)
-df = df[(df['square_meters'] > 0) | (df['square_meters'].isna())]
+
+mean_square_meters = df.groupby('num_rooms')['square_meters'].transform('mean')
+
+# Fill missing values with the corresponding mean square meters
+df['square_meters'] = df['square_meters'].fillna(mean_square_meters)
+
 norm_cols = ['num_rooms','num_baths','square_meters','year_built','num_crimes']
 df_norm = df[norm_cols]
 

@@ -110,6 +110,7 @@ df = df[(df['square_meters'] > 0) | (df['square_meters'].isna())]
 #################
 # Normalisation #
 #################
+# Need to consider if you can/should normalise the year_built variable
 
 norm_cols = ['num_rooms','num_baths','square_meters','year_built','num_crimes','price']
 df_norm = df[norm_cols]
@@ -136,8 +137,26 @@ imputer = KNNImputer(n_neighbors=2)
 imputed_data = imputer.fit_transform(df_norm)
 imputed_df = pd.DataFrame(imputed_data, columns=df_norm.columns)
 
-imputed_df = imputed_df.add_prefix('norm_')
 
+# Angelos function below
+######################################################################
+def de_normalize(imputed_df, data):
+    min_value = min(data.dropna())
+    max_value = max(data.dropna())
+    de_normalized_data = []
+    
+    for value in imputed_df:
+        de_normalized_value = value*(max_value-min_value) + min_value
+        de_normalized_data.append(de_normalized_value)
+        
+    return de_normalized_data
+
+for col in norm_cols:
+    df[col] = de_normalize(df_norm[col], df[col])
+
+#######################################################################
+
+imputed_df = imputed_df.add_prefix('norm_')
 df.reset_index(drop=True, inplace=True)
 imputed_df.reset_index(drop=True, inplace=True)
 df = pd.concat([df, imputed_df], axis=1)
@@ -226,12 +245,58 @@ df_pred.to_csv("C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Proje
 
 ######################
 #2nd attempt at running the model
+
+
 y_train = df['price']
-x_train = df['norm_num_rooms']
+# Here does it make sense to include both normalised and non-normalised variables - can you do this???
+x_train = df[['norm_num_rooms', 'norm_num_baths', 'norm_square_meters', 'norm_year_built', 'norm_num_crimes']]
+
+model = LinearRegression()
+model.fit(x_train, y_train)
+
+# Model res
+model.coef_
+model.intercept_
+model.score(x_train, y_train)
+
+
+test_df = pd.read_csv()
+
+# Test data
+x_test = df[['norm_num_rooms', 'norm_num_baths', 'norm_square_meters', 'norm_year_built', 'norm_num_crimes']]
+
+y_pred = model.predict(x_test)
+
+df_pred = pd.DataFrame()
+df_pred['id'] = df['id']
+df_pred['price'] = y_pred
+
+
+df_pred.to_csv("C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Project_1/simple_prediction2.csv", index=False)
 
 
 
+## Same as above but y is now price normalised
+y_train = df['norm_price']
+# Here does it make sense to include both normalised and non-normalised variables - can you do this???
+x_train = df['norm_num_rooms', 'norm_num_baths', 'norm_square_meters', 'norm_year_built', 'norm_num_crimes', 'norm_price', 'neighborhood_p']
 
+model = LinearRegression()
+model.fit(x_train, y_train)
+
+# Model res
+model.coef_
+model.intercept_
+model.score(x_train, y_train)
+
+# Test data
+x_test = df_test['norm_num_rooms', 'norm_num_baths', 'norm_square_meters', 'norm_year_built', 'norm_num_crimes', 'norm_price', 'neighborhood_p']
+
+y_pred = model.predict(x_test)
+
+df_pred = pd.DataFrame()
+df_pred['id'] = df_test['id']
+df_pred['price'] = y_pred
 
 
 
