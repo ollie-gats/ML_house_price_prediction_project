@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import missingno as msno
 import seaborn as sns
+from sklearn.linear_model import LinearRegression
 
 df = pd.read_csv("C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Project_1/train.csv")
 
@@ -146,12 +147,88 @@ plt.figure(figsize=(15, 10))
 sns.heatmap(numerical_df.corr(), annot=True)
 plt.show()
 
+# num_crimes and square meters seem to be the most important for predicting price.
 
-# Remeber to do some descriptive stats on how the neighborhood effects average price
+# Look at average price per neighborhood
+neighborhood_df = df.groupby('neighborhood')['price'].mean().reset_index()
+plt.bar(neighborhood_df['neighborhood'], neighborhood_df['price'])
+plt.xticks(rotation = 45)
+
+
+
+
+
+# ADJUST THIS SECTION
+########################################
+# Applying cleaning steps to test data #
+########################################
+df_test = pd.read_csv("C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Project_1/test.csv")
+# REALLY THIS SHOULD BE DONE SEPERATELY, AS THE TEST DATA MAY HAVE SLIGHTLY DIFFERENT FEATURES
+# CLEAN IT LIKE IT'S A NEW DATASET!!!
+
+df_test.drop('num_supermarkets', axis=1, inplace=True)
+
+# Removing rows with NaN from other columns as there is little for every col
+df.dropna(subset = ['num_baths', 'square_meters', 'year_built', 'door', 'is_furnished',
+                    'has_pool', 'neighborhood', 'num_crimes', 'has_ac', 'accepts_pets'], inplace=True)
+
+df = df[df['num_rooms'] < 20]
+
+df = pd.concat([df, pd.get_dummies(df['orientation'], prefix='orien')], axis=1)
+
+# Target encoding neighborhood with house prices
+mean_price_by_neighborhood = df.groupby('neighborhood')['price'].mean()
+
+# Creating categorial variable neighborhood_p
+df['neighborhood_p'] = df['neighborhood'].map(mean_price_by_neighborhood)
+
+df_test.dropna(inplace=True)
+
+
+# Filling for simple regresison below
+df_test['square_meters'].fillna(df_test['square_meters'].mean(), inplace=True)
+df_test['num_crimes'].fillna(0, inplace=True)
+
+
+
+
+
+####################
+# Linear Modelling #
+####################
+
+# Running simple linear model without feature scaling, using  num_crimes and square_meters as predictors
+y_train = df['price']
+x_train = df[['num_crimes', 'square_meters']]
+model = LinearRegression()
+model.fit(x_train, y_train)
+
+# Model res
+model.coef_
+model.intercept_
+model.score(x_train, y_train)
+
+# Testing the model
+x_test = df_test[['num_crimes', 'square_meters']]
+
+y_pred = model.predict(x_test)
+
+df_pred = pd.DataFrame()
+df_pred['id'] = df_test['id']
+df_pred['price'] = y_pred
+
+# Prediction has to have 2000 rows, cannot remove data from the test!!! Even those with missing values 
+#need tp 
+# Exporting prediction
+df_pred.to_csv("C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Project_1/simple_prediction.csv", index=False)
+
+
 # Also remember to look at feature scaling.
 # Look at how different distributions differ across apartment prices
-# Look at correlation matrix to see what variables are most correlated with price
 # Experiment with a specific simple model to see if that's best
 # door varibale needs to be dealth with in some way
+# Think about all the different iterations of models we want to test, then set
+# up some loop which runs through them all and records the ones with the best predictions
+# The cleaning steps should be functionalised once we have them finalised
 
 
