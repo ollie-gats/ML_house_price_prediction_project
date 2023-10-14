@@ -3,8 +3,13 @@ import matplotlib.pyplot as plt
 import missingno as msno
 import seaborn as sns
 from sklearn.linear_model import LinearRegression
+from sklearn.impute import KNNImputer
+import numpy as np
 
-df = pd.read_csv("C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Project_1/train.csv")
+# Fill your data path here
+data_path = "C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Project_1/train.csv"
+
+df = pd.read_csv(data_path)
 
 
 # Understanding the data
@@ -29,12 +34,6 @@ sns.heatmap(df.isna(), cbar=False)
 # num_supermarkets has more than 80% of values missing so removing
 # no way of accurately filling orientation but may be useful so leaving for now
 df.drop('num_supermarkets', axis=1, inplace=True)
-
-# Removing rows with NaN from other columns as there is little for every col
-df.dropna(subset = ['num_baths', 'square_meters', 'year_built', 'door', 'is_furnished',
-                    'has_pool', 'neighborhood', 'num_crimes', 'has_ac', 'accepts_pets'], inplace=True)
-
-# THIS SHOULD BE CONSIDERED MORE CAREFULLY, LEADS TO APPROX 25,000 OBVS BEING DROPPED
 
 
 ###############
@@ -88,13 +87,10 @@ sns.boxplot(data=df, y='num_rooms')
 plt.title('num_rooms outliers')
 
 # How many obvs over 20 rooms
-len(df[df['num_rooms'] > 20]) # 36
+len(df[df['num_rooms'] > 10])
 
-# Removing those 36 obvs
-df = df[df['num_rooms'] < 20]
-
-# Checking max room number
-df['num_rooms'].max() # Max is now 4
+# Replacing the outliers with NaN
+df['num_rooms'] = df['num_rooms'].apply(lambda x: x if x<10 else np.nan)
 
 
 # Checking how many have type for orientation
@@ -105,13 +101,49 @@ df = df[df['orientation'] != 'soxth']
 
 
 # Check number of obvs with negative sq meters
-len(df[df['square_meters'] < 0])
+len(df[df['square_meters'] <= 0])
 
-# Only 59 so dropping
-df = df[df['square_meters'] > 0]
+# Dropping
+df = df[(df['square_meters'] > 0) | (df['square_meters'].isna())]
+
+
+#################
+# Normalisation #
+#################
+
+norm_cols = ['num_rooms','num_baths','square_meters','year_built','num_crimes','price']
+df_norm = df[norm_cols]
+
+def normalize_data(data):
+    min_value = min(data.dropna())
+    max_value = max(data.dropna())
+    normalized_data = []
+
+    for value in data:
+        normalized_value = (value - min_value) / (max_value - min_value)
+        normalized_data.append(normalized_value)
+
+    return normalized_data
+
+
+for col in norm_cols:
+    df_norm[col] = normalize_data(df_norm[col])
 
 
 
+# Imputing with KNN
+imputer = KNNImputer(n_neighbors=2)
+imputed_data = imputer.fit_transform(df_norm)
+imputed_df = pd.DataFrame(imputed_data, columns=df_norm.columns)
+
+imputed_df = imputed_df.add_prefix('norm_')
+
+df.reset_index(drop=True, inplace=True)
+imputed_df.reset_index(drop=True, inplace=True)
+df = pd.concat([df, imputed_df], axis=1)
+
+# WE NEED TO CHECK THE NORMALISED VALUES ARE THE SAME WHEN DE-NORMALISED
+# TIDY THE OUTCOME DATAFRAME, DENORMALISE AND REPLACE THE OLD COLS
 
 
 ######################################
@@ -158,39 +190,6 @@ plt.xticks(rotation = 45)
 
 
 
-# ADJUST THIS SECTION
-########################################
-# Applying cleaning steps to test data #
-########################################
-df_test = pd.read_csv("C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Project_1/test.csv")
-# REALLY THIS SHOULD BE DONE SEPERATELY, AS THE TEST DATA MAY HAVE SLIGHTLY DIFFERENT FEATURES
-# CLEAN IT LIKE IT'S A NEW DATASET!!!
-
-df_test.drop('num_supermarkets', axis=1, inplace=True)
-
-# Removing rows with NaN from other columns as there is little for every col
-df.dropna(subset = ['num_baths', 'square_meters', 'year_built', 'door', 'is_furnished',
-                    'has_pool', 'neighborhood', 'num_crimes', 'has_ac', 'accepts_pets'], inplace=True)
-
-df = df[df['num_rooms'] < 20]
-
-df = pd.concat([df, pd.get_dummies(df['orientation'], prefix='orien')], axis=1)
-
-# Target encoding neighborhood with house prices
-mean_price_by_neighborhood = df.groupby('neighborhood')['price'].mean()
-
-# Creating categorial variable neighborhood_p
-df['neighborhood_p'] = df['neighborhood'].map(mean_price_by_neighborhood)
-
-df_test.dropna(inplace=True)
-
-
-# Filling for simple regresison below
-df_test['square_meters'].fillna(df_test['square_meters'].mean(), inplace=True)
-df_test['num_crimes'].fillna(0, inplace=True)
-
-
-
 
 
 ####################
@@ -221,6 +220,21 @@ df_pred['price'] = y_pred
 #need tp 
 # Exporting prediction
 df_pred.to_csv("C:/Users/gatla/OneDrive/BSE/Computational_machine_learning/Project_1/simple_prediction.csv", index=False)
+
+
+
+
+######################
+#2nd attempt at running the model
+y_train = df['price']
+x_train = df['norm_num_rooms']
+
+
+
+
+
+
+
 
 
 # Also remember to look at feature scaling.
