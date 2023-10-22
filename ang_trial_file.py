@@ -29,7 +29,7 @@ missing_percentage = df.isnull().sum()/len(df) * 100
 df.drop('num_supermarkets', axis=1, inplace=True)
 
 # # Dropping orientation (argue saying that this is hardly inputer and has a 30% of missing data) 
-# df.drop('orientation', axis=1, inplace=True)
+df.drop('orientation', axis=1, inplace=True)
 
 ###########################
 # Creating floor variable #
@@ -97,8 +97,7 @@ df['price'] = winsorize(df['price'], limits=(0.05, 0.05))
 # Replacing the outliers with NaN in the number of rooms (justify cutoff value: outliers are very high above 10)
 df['num_rooms'] = df['num_rooms'].apply(lambda x: x if x<4 else np.nan)
 
-df['orientation'] = df['orientation'].apply(lambda x: x if x!= 'soxth' else 'south')
-
+# df['orientation'] = df['orientation'].apply(lambda x: x if x!= 'soxth' else 'south')
 
 # Replacing the values of square metres < 40 with NaN (change the cutoff value and see the results)
 df.loc[df['square_meters'] < 0, 'square_meters'] = np.nan
@@ -139,26 +138,24 @@ for i in to_standardize:
 # Handling missing data #
 #########################
 
-# Missing values percentage
-# print(round((df.isnull().sum() / len(df) * 100), 2))
-
 # Dropping NaNs from year built (justify: difficult to predict based on other variables, low value)
 # df = df.dropna(subset=['year_built'])
 df['year_built'].fillna(df['year_built'].mean())
 
 # dropping the rows that have multiple missing values
-cols = ['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes']
-cols1 = ['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes']
+cols = ['square_meters', 'floor', 'num_crimes']
+cols1 = ['square_meters', 'floor', 'num_crimes']
 
 for i in cols:
     for j in cols1:
         if i != j:
             df = df[(df[i].notnull()) | (df[j].notnull())]
 
-#####################
-# Imputing with KNN #
-#####################
+###############
+# Imputations #
+###############
 
+# Imputing with KNN
 knn_cols = ['square_meters', 'floor', 'num_crimes', 'price']
 df_sub = df[knn_cols]
 imputer = KNNImputer(n_neighbors=20)
@@ -171,6 +168,27 @@ df = df.reset_index(drop=True)
 df = df.drop(knn_cols, axis=1)
 df[knn_cols] = df_sub[knn_cols]
 # print(round((df.isnull().sum() / len(df) * 100), 2))
+
+# # Imputing room numbers
+df['sqm_per_room'] = df['square_meters']/df['num_rooms']
+Q1 = df['sqm_per_room'].quantile(0.25)
+Q3 = df['sqm_per_room'].quantile(0.75)
+IQR = Q3 - Q1
+
+# Define the lower and upper bounds for outliers
+lower_bound = Q1 - 1.5 * IQR
+upper_bound = Q3 + 1.5 * IQR
+
+median_sqm_per_room = df['sqm_per_room'].median()
+
+def changing_num_rooms_in_outliers(row):
+    if row['sqm_per_room'] < upper_bound:
+        return row['num_rooms']
+    else:
+        return round(row['square_meters'] / median_sqm_per_room,1)
+    
+df['num_rooms'] = df.apply(changing_num_rooms_in_outliers, axis=1)
+
 
 #################################
 # Categorical Variable Encoding # 
@@ -191,8 +209,8 @@ df['floor_one_dummy'] = df['floor'].apply(lambda x: True if x==floor1_std else F
 # Orientation Dummy #
 #####################
 
-df['south_orientation'] = df['orientation'].apply(lambda x: True if x=='south' else False)
-df.drop('orientation', axis=1, inplace=True)
+# df['south_orientation'] = df['orientation'].apply(lambda x: True if x=='south' else False)
+# df.drop('orientation', axis=1, inplace=True)
 
 ###############################
 # Dropping the remaining NaNs #
@@ -219,21 +237,171 @@ correlation_matrix = df[numeric_columns].corr()
 # Trial Prediction #
 ####################
 
-features = ['num_rooms', 'num_baths','square_meters', 'floor', 'num_crimes', 'neighborhood_crime_encoded','has_ac', 'floor_one_dummy']
-target = ['price']
+# features = ['num_rooms', 'num_baths','square_meters', 'floor', 'num_crimes', 'neighborhood_crime_encoded','has_ac', 'floor_one_dummy']
+# target = ['price']
 
-def prediction_accuracy(df, features, target):
-    mse_list = []
-    num_of_predictions = 5000
-    for i in range (num_of_predictions):
-        X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size= 0.2)
+# def prediction_accuracy(df, features, target):
+#     mse_list = []
+#     num_of_predictions = 5000
+#     for i in range (num_of_predictions):
+#         X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size= 0.2)
 
-        model = LinearRegression()
-        model.fit(X_train, y_train)
+#         model = LinearRegression()
+#         model.fit(X_train, y_train)
 
-        y_pred = model.predict(X_test)
-        mse = mean_squared_error(y_test, y_pred)
-        mse_list.append(mse)
-    return sum(mse_list) / len(mse_list)
+#         y_pred = model.predict(X_test)
+#         mse = mean_squared_error(y_test, y_pred)
+#         mse_list.append(mse)
+#     return sum(mse_list) / len(mse_list)
 
-print(prediction_accuracy(df, features, target))
+# print(prediction_accuracy(df, features, target))
+
+
+##############
+# Submitting #
+##############
+
+# ######################
+# # OLLIE MODIFICATION #
+# ######################
+
+# Also train model without the binary variables
+df_no_binary = df[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy']]
+
+y_train = df['price']
+x_train = df_no_binary
+
+model_no_binary = LinearRegression()
+model_no_binary.fit(x_train, y_train)
+
+# ####################
+# # Linear Modelling #
+# ####################
+
+# Running simple linear model without feature scaling, using  num_crimes and square_meters as predictors
+y_train = df['price']
+x_train = df[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy']]
+
+model = LinearRegression()
+model.fit(x_train, y_train)
+
+# Test data import
+data_path_test = "./data//test.csv"
+df_test = pd.read_csv(data_path_test)
+df_test=df_test.sort_values("id").reset_index(drop=True)
+
+# Dropping columns with high missing percentage
+df_test.drop('num_supermarkets', axis=1, inplace=True)
+df_test.drop('orientation', axis=1, inplace=True)
+
+# Creating floor variable
+df_test[['floor', 'door_num']] = df_test['door'].str.split('-', n=1, expand=True)
+df_test['floor'] = df_test['floor'].str[0]
+df_test["floor"] = pd.to_numeric(df_test["floor"])
+
+# Dropping door and door_num columns
+df_test.drop('door', axis=1, inplace=True)
+df_test.drop('door_num', axis=1, inplace=True)
+
+# Turning to nan sq.mt and num_rooms
+df_test['num_rooms'] = df_test['num_rooms'].apply(lambda x: x if x<4 else np.nan)
+df_test.loc[df_test['square_meters'] < 0, 'square_meters'] = np.nan
+
+# Creation of a dummy variable for floor 1
+df_test['floor_one_dummy'] = df_test['floor'].apply(lambda x: True if x==1 else False)
+
+# Neighborhood encoding and dropping categorical variable
+neighb_mean_crime = df_test.groupby('neighborhood')['num_crimes'].mean()
+df_test['neighborhood_crime_encoded'] = df_test['neighborhood'].map(neighb_mean_crime)
+df_test.drop('neighborhood', axis=1, inplace=True)
+
+# Standardizing
+to_standardize = ['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded']
+for i in to_standardize:
+    df_test[i] = (df_test[i] - np.mean(df_test[i])) / np.std(df_test[i])
+
+# OLLIE NEW CODE: 
+# Subsetting df for those which have a missing binary variable
+binary_cols = ['is_furnished', 'has_pool', 'has_ac', 'accepts_pets']
+df_missing = df_test[df_test[binary_cols].isna().any(axis=1)]
+df_not_missing = df_test[~df_test[binary_cols].isna().any(axis=1)]
+
+# Using KNN on not_missing df
+columns_to_knn = ['id', 'num_baths', 'square_meters', 'year_built', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor', 'floor_one_dummy', 'neighborhood_crime_encoded']
+df_sub_nm = df_not_missing[columns_to_knn]
+imputer = KNNImputer(n_neighbors=3)
+imputed_data = imputer.fit_transform(df_sub_nm)
+df_sub_nm = pd.DataFrame(imputed_data, columns=columns_to_knn)
+
+df_not_missing = df_not_missing.reset_index(drop=True)
+df_not_missing = df_not_missing.drop(columns_to_knn, axis=1)
+df_not_missing[columns_to_knn] = df_sub_nm[columns_to_knn]
+
+df_not_missing['sqm_per_room'] = df_not_missing['square_meters']/df_not_missing['num_rooms']
+Q1 = df_not_missing['sqm_per_room'].quantile(0.25)
+Q3 = df_not_missing['sqm_per_room'].quantile(0.75)
+IQR = Q3 - Q1
+
+# Define the lower and upper bounds for outliers
+lower_bound = Q1 - 1.5 * IQR
+upper_bound = Q3 + 1.5 * IQR
+
+median_sqm_per_room = df_not_missing['sqm_per_room'].median()
+
+def changing_num_rooms_in_outliers(row):
+    if row['sqm_per_room'] < upper_bound:
+        return row['num_rooms']
+    else:
+        return round(row['square_meters'] / median_sqm_per_room,1)
+    
+df_not_missing['num_rooms'] = df_not_missing.apply(changing_num_rooms_in_outliers, axis=1)
+# Using info from the other dataframe to KNN this one
+df_sub_m = df_missing[columns_to_knn]
+imputed_data_missing = imputer.transform(df_sub_m)  # Use transform instead of fit_transform
+df_sub_m = pd.DataFrame(imputed_data_missing, columns=columns_to_knn)
+
+df_missing = df_missing.reset_index(drop=True)
+df_missing = df_missing.drop(columns_to_knn, axis=1)
+df_missing[columns_to_knn] = df_sub_m[columns_to_knn]
+
+# Imputing the num of rooms
+df_missing['sqm_per_room'] = df_missing['square_meters']/df_missing['num_rooms']
+Q1 = df_missing['sqm_per_room'].quantile(0.25)
+Q3 = df_missing['sqm_per_room'].quantile(0.75)
+IQR = Q3 - Q1
+
+# Define the lower and upper bounds for outliers
+lower_bound = Q1 - 1.5 * IQR
+upper_bound = Q3 + 1.5 * IQR
+
+median_sqm_per_room = df_missing['sqm_per_room'].median()
+
+def changing_num_rooms_in_outliers(row):
+    if row['sqm_per_room'] < upper_bound:
+        return row['num_rooms']
+    else:
+        return round(row['square_meters'] / median_sqm_per_room,1)
+    
+df_missing['num_rooms'] = df_missing.apply(changing_num_rooms_in_outliers, axis=1)
+
+# Drop binaries from df_missing
+df_missing.drop(binary_cols, axis=1, inplace=True)
+
+# Prediction for df_not_missing
+x_test = df_not_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy']]
+y_pred_not_missing = model.predict(x_test)
+
+df_not_missing['pred'] = y_pred_not_missing
+
+# Prediction for df_missing
+x_test = df_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy']]
+y_pred_missing = model_no_binary.predict(x_test)
+
+df_missing['pred'] = y_pred_missing
+new_df = pd.DataFrame()
+
+# Creating final DataFrame
+new_df['id'] = df_missing['id'].tolist() + df_not_missing['id'].tolist()
+new_df['pred'] = df_missing['pred'].tolist() + df_not_missing['pred'].tolist()
+
+new_df.to_csv('./prediction_sunday8pm.csv', index=False)
