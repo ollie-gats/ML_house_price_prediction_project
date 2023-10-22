@@ -107,7 +107,7 @@ df.loc[df['square_meters'] < 0, 'square_meters'] = np.nan
 
 df['floor_one_dummy'] = df['floor'].apply(lambda x: True if x==1 else False)
 
-
+# sssss
 ###################
 # Standardization #
 ###################
