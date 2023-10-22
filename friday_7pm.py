@@ -105,6 +105,7 @@ df['num_rooms'] = df['num_rooms'].apply(lambda x: x if x<4 else np.nan)
 # Replacing the values of square metres < 40 with NaN (change the cutoff value and see the results)
 df.loc[df['square_meters'] < 0, 'square_meters'] = np.nan
 
+# Creation of a dummy variable for floor 1
 df['floor_one_dummy'] = df['floor'].apply(lambda x: True if x==1 else False)
 
 ###################
