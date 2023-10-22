@@ -117,8 +117,6 @@ for i in cols:
 
 
 # Imputing with linear regression 
-# Filling price with 0 if na
-#df['price'] = df['price'].fillna(0)
 
 
 # Imputing different combinations of variables with what makes most sense in train data
@@ -129,7 +127,7 @@ sns.heatmap(df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', '
 plt.title("Correlation Matrix")
 plt.show()
 
-# THIS FUNCTION NEEDS TO BE CHANGED, DOESN'T MAKE SENSE AT THE MOMENT
+# THIS FUNCTION NEEDS TO BE CHANGED, DOESN'T MAKE SENSE AT THE MOMENT - you always need to have cols_to_impute and predictor_cols equal
 # Imputing num_rooms
 def reg_imputer(df, columns_to_impute: list, predictor_columns: list):
 
