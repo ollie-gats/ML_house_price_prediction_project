@@ -66,6 +66,44 @@ df.drop('num_supermarkets', axis=1, inplace=True)
 # Dropping orientation (argue saying that this is hardly inputer and has a 30% of missing data) 
 df.drop('orientation', axis=1, inplace=True)
 
+
+# Replacing the outliers with NaN in the number of rooms (justify cutoff value: outliers are very high above 10)
+df['num_rooms'] = df['num_rooms'].apply(lambda x: x if x<10 else np.nan)
+
+# Replacing the values of square metres < 40 with NaN (change the cutoff value and see the results)
+df.loc[df['square_meters'] < 0, 'square_meters'] = np.nan
+
+# creating a new variable: square meters per room and look at the outliers
+df['sqm_per_room'] = df['square_meters']/df['num_rooms']
+sns.boxplot(data=df['sqm_per_room'], palette="Set2")
+plt.show()
+
+
+# outliers detected from boxplot, take a closer look
+
+upper_bound = df['sqm_per_room'].quantile(0.80)
+print(upper_bound)
+df[df['sqm_per_room']>upper_bound]['num_rooms'].value_counts()
+
+# nearly all rows that have an outlier as sqm_per_room have only 1 room. This doesn't make sense. Change this data with mean of sqm_per_room of non outliers
+
+median_sqm_per_room = df[df['sqm_per_room'] < upper_bound]['sqm_per_room'].median()
+print(median_sqm_per_room)
+
+def changing_num_rooms_in_outliers(row):
+    if row['sqm_per_room'] < upper_bound:
+        return row['num_rooms']
+    else:
+        return round(row['square_meters'] / median_sqm_per_room,0)
+    
+df['num_rooms'] = df.apply(changing_num_rooms_in_outliers, axis=1)
+
+df[df['sqm_per_room']>upper_bound]['num_rooms'].value_counts()
+# recalculate sqm_per_room afterwards
+df['sqm_per_room'] = df['square_meters']/df['num_rooms']
+
+
+
 # Creating floor variable
 df[['floor', 'door_num']] = df['door'].str.split('-', n=1, expand=True)
 df['floor'] = df['floor'].str[0]
@@ -74,11 +112,7 @@ df["floor"] = pd.to_numeric(df["floor"])
 # Dropping door and door_num columns (justify: not influential)
 df.drop(['door', 'door_num'], axis=1, inplace=True)
 
-# Replacing the outliers with NaN in the number of rooms (justify cutoff value: outliers are very high above 10)
-df['num_rooms'] = df['num_rooms'].apply(lambda x: x if x<10 else np.nan)
 
-# Replacing the values of square metres < 40 with NaN (change the cutoff value and see the results)
-df.loc[df['square_meters'] < 0, 'square_meters'] = np.nan
 
 
 # Feature engineering - dummy for floor 1
@@ -177,29 +211,6 @@ pred_cols = ['num_rooms', 'num_baths', 'square_meters','year_built', 'num_crimes
 
 df = reg_imputer(df, cols_to_impute, pred_cols)
 
-df.isna().sum()
-# Correcting room numbers
-df['sqm_per_room'] = df['square_meters']/df['num_rooms']
-Q1 = df['sqm_per_room'].quantile(0.25)
-Q3 = df['sqm_per_room'].quantile(0.75)
-IQR = Q3 - Q1
-
-# Define the lower and upper bounds for outliers
-lower_bound = Q1 - 1.5 * IQR
-upper_bound = Q3 + 1.5 * IQR
-
-
-
-median_sqm_per_room = df['sqm_per_room'].median()
-
-def changing_num_rooms_in_outliers(row):
-    if row['sqm_per_room'] < upper_bound:
-        return row['num_rooms']
-    else:
-        return round(row['square_meters'] / median_sqm_per_room,1)
-    
-df['num_rooms'] = df.apply(changing_num_rooms_in_outliers, axis=1)
-
 
 
 # Split dataframes again to train model
@@ -208,7 +219,7 @@ df_train = df[df['price'] != 0]
 
 
 # Train model without binary variables
-df_no_binary = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy']]
+df_no_binary = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy', 'sqm_per_room']]
 
 y_train = df_train['price']
 x_train = df_no_binary
@@ -218,15 +229,19 @@ model_no_binary.fit(x_train, y_train)
 
 
 # Train model with all variables
-"""Change: test with only few variables"""
 
 y_train = df_train['price']
-x_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'floor', 'num_crimes', 'neighborhood_crime_encoded','has_ac', 'floor_one_dummy']]
+x_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy', 'sqm_per_room']]
 
 model = LinearRegression()
 model.fit(x_train, y_train)
 
+#%%
+df.isna().sum()
 
+
+# fill missing values in test in "sqm_per_room"
+df_test['sqm_per_room'] = df_test['sqm_per_room'].fillna(df['sqm_per_room'].mean())
 
 # Subsetting test data for binary variables missing
 binary_cols = ['is_furnished', 'has_pool', 'has_ac', 'accepts_pets']
@@ -238,25 +253,31 @@ df_not_missing = df_test[~df_test[binary_cols].isna().any(axis=1)]
 df_missing.drop(binary_cols, axis=1, inplace=True)
 
 
+
+
 # Prediction for df_not_missing
-x_test = df_not_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy']]
+x_test = df_not_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy', 'sqm_per_room']]
+print(x_test.isna().sum())
+
+
 y_pred_not_missing = model.predict(x_test)
 
 df_not_missing['pred'] = y_pred_not_missing
 
+
 # Prediction for df_missing
-x_test = df_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy']]
+x_test = df_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded',  'floor_one_dummy', 'sqm_per_room']]
 y_pred_missing = model_no_binary.predict(x_test)
+
+
 
 df_missing['pred'] = y_pred_missing
 new_df = pd.DataFrame()
-
 
 # Creating final DataFrame
 new_df['id'] = df_missing['id'].tolist() + df_not_missing['id'].tolist()
 new_df['pred'] = df_missing['pred'].tolist() + df_not_missing['pred'].tolist()
 
-new_df.to_csv('C:/Users/vanes/Desktop/BSE/Term 1/Computational Machine Learning/not all variables as target variables.csv', index=False)
+new_df.to_csv('C:/Users/vanes/Desktop/BSE/Term 1/Computational Machine Learning/change more num_rooms.csv', index=False)
 
 
-# %%
