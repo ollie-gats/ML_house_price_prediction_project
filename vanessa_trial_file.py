@@ -9,8 +9,7 @@ from sklearn.metrics import r2_score
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import KNNImputer
 import numpy as np
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer
+from sklearn.linear_model import LogisticRegression
 
 
 # Filling data path
@@ -66,22 +65,31 @@ df.drop('num_supermarkets', axis=1, inplace=True)
 # Dropping orientation (argue saying that this is hardly inputer and has a 30% of missing data) 
 df.drop('orientation', axis=1, inplace=True)
 
-
 # Replacing the outliers with NaN in the number of rooms (justify cutoff value: outliers are very high above 10)
 df['num_rooms'] = df['num_rooms'].apply(lambda x: x if x<10 else np.nan)
 
 # Replacing the values of square metres < 40 with NaN (change the cutoff value and see the results)
-df.loc[df['square_meters'] < 0, 'square_meters'] = np.nan
+#df.loc[df['square_meters'] < 0, 'square_meters'] = np.nan
 
-# creating a new variable: square meters per room and look at the outliers
-df['sqm_per_room'] = df['square_meters']/df['num_rooms']
+print(df['num_rooms'].value_counts())
+mean_sqm_to_room = df.groupby('num_rooms')['square_meters'].mean()
+print(mean_sqm_to_room)
+
+# seems odd that the mean size of the apartments is nearly the same for all num_rooms
+# creating a new variable: square meters per room and look at the outliers (only if square_meter is positive, closer look at negative values later)
+def calculating_sqm_per_room(row):
+    if row['square_meters'] > 0:
+        return row['square_meters']/ row['num_rooms']
+    else:
+        row['sqm_per_room'] = pd.NA    
+df['sqm_per_room'] = df.apply(calculating_sqm_per_room, axis=1)
 sns.boxplot(data=df['sqm_per_room'], palette="Set2")
 plt.show()
 
 
 # outliers detected from boxplot, take a closer look
 
-upper_bound = df['sqm_per_room'].quantile(0.80)
+upper_bound = 80
 print(upper_bound)
 df[df['sqm_per_room']>upper_bound]['num_rooms'].value_counts()
 
@@ -91,18 +99,135 @@ median_sqm_per_room = df[df['sqm_per_room'] < upper_bound]['sqm_per_room'].media
 print(median_sqm_per_room)
 
 def changing_num_rooms_in_outliers(row):
-    if row['sqm_per_room'] < upper_bound:
-        return row['num_rooms']
+    if row['square_meters'] >0 and pd.notna(row['num_rooms']):
+        if row['sqm_per_room'] < upper_bound:
+            return row['num_rooms']
+        else:
+            return round(row['square_meters'] / median_sqm_per_room,0)
     else:
-        return round(row['square_meters'] / median_sqm_per_room,0)
+        return row['num_rooms']    
     
 df['num_rooms'] = df.apply(changing_num_rooms_in_outliers, axis=1)
 
 df[df['sqm_per_room']>upper_bound]['num_rooms'].value_counts()
-# recalculate sqm_per_room afterwards
-df['sqm_per_room'] = df['square_meters']/df['num_rooms']
+# dealing with negaitve square meters: 100 values
+df_sub = df[df['sqm_per_room']<upper_bound]
+df[df['square_meters'].isna() & df['num_rooms'].isna()]
+
+#create possible / logical intervals for each numer ob rooms (for 5 not necessary)
+intervals_per_room = []
+for i in [1,2,3,4]:
+    mean = df_sub[df_sub['num_rooms']==i]['square_meters'].mean()
+    std_deviation = np.std(df_sub[df_sub['num_rooms']==i]['square_meters'])
+    lower_bound = mean - 1.5*std_deviation
+    upper_bound = mean + 1.5*std_deviation
+    interval_i = [lower_bound, upper_bound]
+    intervals_per_room.append(interval_i)
+
+intervals_per_room
 
 
+#create a function that checks whether the negative values could be the positive ones
+def correcting_negative_sqm(row):
+    if row['square_meters'] > 0:
+        return row['square_meters']
+    for i in range(4):  # Iterate through all rooms
+        if row['num_rooms'] == i + 1:
+            if intervals_per_room[i][0] <= abs(row['square_meters']) <= intervals_per_room[i][1]:
+                return abs(row['square_meters'])
+    return np.nan  # If none of the conditions are met, return NaN 
+
+df['square_meters'] = df.apply(correcting_negative_sqm, axis=1)
+
+# Calculate the mean square meters for each 'num_rooms' group
+mean_sqm_to_room_mapper = df.groupby('num_rooms')['square_meters'].mean()
+
+# Fill missing 'square_meters' values based on 'num_rooms'
+def fill_sqm(row):
+    if pd.notna(row['square_meters']):
+        return row['square_meters']
+    num_rooms = row['num_rooms']
+    if num_rooms in mean_sqm_to_room_mapper:
+        return mean_sqm_to_room_mapper[num_rooms]
+    else:
+        return None  
+    
+df['square_meters'] = df.apply(fill_sqm, axis=1)    
+
+
+# filling the missing values in num_rooms based on mean_sqm_to_room_mapper
+def fill_num_rooms(row):
+    if pd.notna(row['num_rooms']):
+        return row['num_rooms']
+    else:
+        if pd.notna(row['square_meters']):
+            return round(row['square_meters'] / median_sqm_per_room,0)
+        else:
+            return row['num_rooms']
+    
+df['num_rooms'] = df.apply(fill_num_rooms, axis=1)
+
+# still 10 rows that don't contain num_room or square_meter, fill them after standardization with KNN
+
+# first fill all non-binary cells
+# Standardization
+to_standardize = ['square_meters', 'year_built']
+
+for i in to_standardize:
+    df[i] = (df[i] - np.mean(df[i])) / np.std(df[i])
+
+# impute square_meters and num_rooms  with KNN
+knn_imputer = KNNImputer(n_neighbors=10)  
+df['square_meters'] = knn_imputer.fit_transform(df[['square_meters']])
+df['num_rooms'] = knn_imputer.fit_transform(df[['num_rooms']])
+
+#recalculating sqm_per_room after standardizing
+df['sqm_per_room'] = df['square_meters'] / df['num_rooms']
+
+# look at distribution of num_baths
+df['num_baths'].hist()
+# looks quite equally distributed -> fill missing values in num_bath with mean
+df['num_baths'] = df['num_baths'].fillna(round(df['num_baths'].mean(),0))
+
+# looking at distribution of year_built
+df['year_built'].hist()
+# look quite equally distributed -> fill missing values in year_built with the mean
+df['year_built'] = df['year_built'].fillna(df['year_built'].mean())
+
+
+# Looking at neighborhood and num_crimes
+neighb_mean_crime = df.groupby('neighborhood')['num_crimes'].mean()
+# significant differences between neighborhood and num_crimes -> use this to fill missing values and encode neighborhood
+# function to fill missing values of num_crimes with the mean of the corresponding
+def fill_num_crimes(row):
+    if pd.notna(row['num_crimes']):
+        return row['num_crimes']
+    neighborhood = row['neighborhood']
+    if neighborhood in neighb_mean_crime:
+        return neighb_mean_crime[neighborhood]
+    else:
+        return None
+    
+df['num_crimes'] = df.apply(fill_num_crimes, axis=1)
+
+df[df['num_crimes'].isna() & df['neighborhood'].isna()]
+# still 6 rows, that don't have neighborhood or num_crimes, all from train_dataset -> drop them
+
+df.dropna(subset=['num_crimes'], inplace=True)
+
+# filling NaNs of neighborhood based on their crime rate
+def fill_nearest_neighborhood(row):
+    if pd.isna(row['neighborhood']):
+        nearest_neighborhood = neighb_mean_crime.index[
+        np.abs(neighb_mean_crime.values - row['num_crimes']).argmin()]
+        return nearest_neighborhood
+    else:
+        return row['neighborhood']
+
+df['neighborhood'] = df.apply(fill_nearest_neighborhood, axis=1)
+# now that all num_crimes are filled, you can encode neighborhood and drop the column
+df['neighborhood_crime_encoded'] = df['neighborhood'].map(neighb_mean_crime)
+df.drop('neighborhood', axis=1, inplace=True)
 
 # Creating floor variable
 df[['floor', 'door_num']] = df['door'].str.split('-', n=1, expand=True)
@@ -112,114 +237,111 @@ df["floor"] = pd.to_numeric(df["floor"])
 # Dropping door and door_num columns (justify: not influential)
 df.drop(['door', 'door_num'], axis=1, inplace=True)
 
+# filling missing values with mean
+df['floor'] = df['floor'].fillna(round(df['floor'].mean(),0))
 
 
+# 200 missing values for each binary variable. Try: predict the missing values with logistic regression if the others
+# beginning with the one, that will probably has the least effect and then adding more variables
+correlation_matrix = df.corr(method='pearson')
 
-# Feature engineering - dummy for floor 1
-df['floor_one_dummy'] = df['floor'].apply(lambda x: True if x==1 else False)
+# Calculate the correlation of all columns with respect to the 'price' column
+price_correlation = correlation_matrix['price']
+
+# The 'price' column will also have a correlation of 1 with itself. You can remove it if needed.
+price_correlation = price_correlation.drop('price')
+plt.figure(figsize=(12, 8))
+sns.heatmap(price_correlation.to_frame(), annot=True, cmap="coolwarm", linewidths=0.5)
+plt.show         
 
 
-# Standardization
-to_standardize = ['square_meters', 'year_built','num_crimes']
+# order to inpute binary variables: has_pool, is_furnished, has_ac, accepts_pets
+# imputing has_pool
+df['has_pool'] = df['has_pool'].map({True: 1, False: 0})
+df_train = df[df['has_pool'].notna()]
+df_test = df[df['has_pool'].isna()]
+X_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded','sqm_per_room']]
+y_train = df_train['has_pool']
+X_test = df_test[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded','sqm_per_room']]
 
-for i in to_standardize:
-    df[i] = (df[i] - np.mean(df[i])) / np.std(df[i])
-    
+# Create an instance of the Logistic Regression model
+logreg = LogisticRegression()
 
-# Encoding neighborhood
-"""
-Change: encode after filling missing values of num_crimes"""
-#neighb_mean_crime = df.groupby('neighborhood')['num_crimes'].mean()
-#df['neighborhood_crime_encoded'] = df['neighborhood'].map(neighb_mean_crime)
+# Fit the model to the data
+logreg.fit(X_train, y_train)
+
+# Predict the class labels
+predicted_labels = logreg.predict(X_test)
+df.loc[df['has_pool'].isna(), 'has_pool'] = predicted_labels
+
+
+# imputing is_furnished
+df['is_furnished'] = df['is_furnished'].map({True: 1, False: 0})
+df_train = df[df['is_furnished'].notna()]
+df_test = df[df['is_furnished'].isna()]
+X_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded','sqm_per_room', 'has_pool']]
+y_train = df_train['is_furnished']
+X_test = df_test[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded','sqm_per_room', 'has_pool']]
+
+# Create an instance of the Logistic Regression model
+logreg = LogisticRegression()
+
+# Fit the model to the data
+logreg.fit(X_train, y_train)
+
+# Predict the class labels
+predicted_labels = logreg.predict(X_test)
+df.loc[df['is_furnished'].isna(), 'is_furnished'] = predicted_labels
+
+
+# imputing has_ac
+df['has_ac'] = df['has_ac'].map({True: 1, False: 0})
+df_train = df[df['has_ac'].notna()]
+df_test = df[df['has_ac'].isna()]
+X_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded','sqm_per_room', 'has_pool', 'is_furnished']]
+y_train = df_train['has_ac']
+X_test = df_test[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded','sqm_per_room', 'has_pool', 'is_furnished']]
+
+# Create an instance of the Logistic Regression model
+logreg = LogisticRegression()
+
+# Fit the model to the data
+logreg.fit(X_train, y_train)
+
+# Predict the class labels
+predicted_labels = logreg.predict(X_test)
+df.loc[df['has_ac'].isna(), 'has_ac'] = predicted_labels
+
+
+# imputing has_ac
+df['accepts_pets'] = df['accepts_pets'].map({True: 1, False: 0})
+df_train = df[df['accepts_pets'].notna()]
+df_test = df[df['accepts_pets'].isna()]
+X_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded','sqm_per_room', 'has_pool', 'is_furnished', 'has_ac']]
+y_train = df_train['accepts_pets']
+X_test = df_test[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded','sqm_per_room', 'has_pool', 'is_furnished', 'has_ac']]
+
+# Create an instance of the Logistic Regression model
+logreg = LogisticRegression()
+
+# Fit the model to the data
+logreg.fit(X_train, y_train)
+
+# Predict the class labels
+predicted_labels = logreg.predict(X_test)
+df.loc[df['accepts_pets'].isna(), 'accepts_pets'] = predicted_labels
+
 
 df.isna().sum()
-
-# Spliting dataframes before dropping
+#######################################################NO MISSING VALUES#####################################
+#%%
+# Split dataframes again to train model
 df_test = df[df['price'].isna()]
 df_train = df[df['price'].notna()]
 
 
-# Dropping those with yr built missing in train data
-#df_train = df_train.dropna(subset=['year_built'])
-"""
-Change: drop in both"""
-
-df = df.dropna(subset=['year_built'])
-
-# Dropping the rows that have multiple missing values for train data
-cols = ['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes']
-cols1 = ['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes']
-
-for i in cols:
-    for j in cols1:
-        if i != j:
-            df_train = df_train[(df_train[i].notnull()) | (df_train[j].notnull())]
-            
-
-
-
-# Imputing with linear regression 
-
-
-# Imputing different combinations of variables with what makes most sense in train data
-
-
-plt.figure(figsize=(8, 6))
-sns.heatmap(df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'price', 'floor']].corr(), annot=True, cmap="coolwarm", fmt=".2f", linewidths=0.5)
-plt.title("Correlation Matrix")
-plt.show()
-
-# THIS FUNCTION NEEDS TO BE CHANGED, DOESN'T MAKE SENSE AT THE MOMENT - you always need to have cols_to_impute and predictor_cols equal
-# Imputing num_rooms
-def reg_imputer(df, columns_to_impute: list, predictor_columns: list):
-
-    # Separate the DataFrames
-    imputation_df = df[columns_to_impute]
-    predictors_df = df[predictor_columns]
-
-    imputer = IterativeImputer(estimator=LinearRegression())
-    imputer.fit(predictors_df)
-    imputed_values = imputer.transform(imputation_df)
-    df[columns_to_impute] = imputed_values
-    
-    return df
-
-# Just imputing num_crimes and square_meters with price as these are the only ones with correlation
-df_train = reg_imputer(df_train, ['square_meters', 'num_crimes', 'price'], ['square_meters', 'num_crimes', 'price'])
-
-df_train = df_train.dropna()
-
-"""
-Change: first leave, drop later"""
-# Drop what's missing for everything else
-#df_train = df_train.dropna()
-
-# Combining dataframes together again for imputation
-df = pd.concat([df_train, df_test], axis=0).sort_values("id").reset_index()
-
-# Encoding neighborhood
-
-neighb_mean_crime = df.groupby('neighborhood')['num_crimes'].mean()
-df['neighborhood_crime_encoded'] = df['neighborhood'].map(neighb_mean_crime)
-
-# Replacing missing values in price with 0
-df['price'] = df['price'].fillna(0)
-
-# Imputing everything (not using price) aside from the binary variables
-cols_to_impute = ['num_rooms', 'num_baths', 'square_meters','year_built', 'num_crimes', 'floor', 'neighborhood_crime_encoded']
-pred_cols = ['num_rooms', 'num_baths', 'square_meters','year_built', 'num_crimes', 'floor', 'neighborhood_crime_encoded']
-
-df = reg_imputer(df, cols_to_impute, pred_cols)
-
-
-
-# Split dataframes again to train model
-df_test = df[df['price'] == 0]
-df_train = df[df['price'] != 0]
-
-
 # Train model without binary variables
-df_no_binary = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy', 'sqm_per_room']]
+df_no_binary = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'sqm_per_room']]
 
 y_train = df_train['price']
 x_train = df_no_binary
@@ -231,32 +353,18 @@ model_no_binary.fit(x_train, y_train)
 # Train model with all variables
 
 y_train = df_train['price']
-x_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy', 'sqm_per_room']]
+x_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'sqm_per_room']]
 
 model = LinearRegression()
 model.fit(x_train, y_train)
 
-#%%
-df.isna().sum()
-
-
-# fill missing values in test in "sqm_per_room"
-df_test['sqm_per_room'] = df_test['sqm_per_room'].fillna(df['sqm_per_room'].mean())
-
 # Subsetting test data for binary variables missing
 binary_cols = ['is_furnished', 'has_pool', 'has_ac', 'accepts_pets']
-df_missing = df_test[df_test[binary_cols].isna().any(axis=1)]
 df_not_missing = df_test[~df_test[binary_cols].isna().any(axis=1)]
 
 
-# Drop binaries from df missing
-df_missing.drop(binary_cols, axis=1, inplace=True)
-
-
-
-
 # Prediction for df_not_missing
-x_test = df_not_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy', 'sqm_per_room']]
+x_test = df_not_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'sqm_per_room']]
 print(x_test.isna().sum())
 
 
@@ -264,20 +372,16 @@ y_pred_not_missing = model.predict(x_test)
 
 df_not_missing['pred'] = y_pred_not_missing
 
-
-# Prediction for df_missing
-x_test = df_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded',  'floor_one_dummy', 'sqm_per_room']]
-y_pred_missing = model_no_binary.predict(x_test)
-
-
-
-df_missing['pred'] = y_pred_missing
 new_df = pd.DataFrame()
 
 # Creating final DataFrame
-new_df['id'] = df_missing['id'].tolist() + df_not_missing['id'].tolist()
-new_df['pred'] = df_missing['pred'].tolist() + df_not_missing['pred'].tolist()
+new_df['id'] =  df_not_missing['id'].tolist()
+new_df['pred'] = df_not_missing['pred'].tolist()
 
-new_df.to_csv('C:/Users/vanes/Desktop/BSE/Term 1/Computational Machine Learning/change more num_rooms.csv', index=False)
+new_df.to_csv('C:/Users/vanes/Desktop/BSE/Term 1/Computational Machine Learning/change a lot trial.csv', index=False)
 
 
+
+
+
+# %%
