@@ -340,45 +340,26 @@ df_test = df[df['price'].isna()]
 df_train = df[df['price'].notna()]
 
 
-# Train model without binary variables
-df_no_binary = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'sqm_per_room']]
-
+# set feature and target variables
+X_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'has_ac', 'accepts_pets', 'sqm_per_room']]
 y_train = df_train['price']
-x_train = df_no_binary
 
-model_no_binary = LinearRegression()
-model_no_binary.fit(x_train, y_train)
-
-
-# Train model with all variables
-
-y_train = df_train['price']
-x_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'sqm_per_room']]
-
+# Train model
 model = LinearRegression()
-model.fit(x_train, y_train)
+model.fit(X_train, y_train)
 
-# Subsetting test data for binary variables missing
-binary_cols = ['is_furnished', 'has_pool', 'has_ac', 'accepts_pets']
-df_not_missing = df_test[~df_test[binary_cols].isna().any(axis=1)]
+X_test = df_test[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'has_ac', 'accepts_pets', 'sqm_per_room']]
+y_pred = model.predict(X_test)
 
-
-# Prediction for df_not_missing
-x_test = df_not_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'sqm_per_room']]
-print(x_test.isna().sum())
-
-
-y_pred_not_missing = model.predict(x_test)
-
-df_not_missing['pred'] = y_pred_not_missing
+df_test['pred'] = y_pred
 
 new_df = pd.DataFrame()
 
 # Creating final DataFrame
-new_df['id'] =  df_not_missing['id'].tolist()
-new_df['pred'] = df_not_missing['pred'].tolist()
+new_df['id'] =  df_test['id'].tolist()
+new_df['pred'] = df_test['pred'].tolist()
 
-new_df.to_csv('C:/Users/vanes/Desktop/BSE/Term 1/Computational Machine Learning/change a lot trial.csv', index=False)
+new_df.to_csv('C:/Users/vanes/Desktop/BSE/Term 1/Computational Machine Learning/change a lot one regression.csv', index=False)
 
 
 
