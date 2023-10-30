@@ -159,7 +159,7 @@ for i in cols:
 #####################
 # Imputing with KNN #
 #####################
-knn_cols = ['num_rooms', 'num_baths', 'square_meters', 'floor', 'num_crimes', 'price']
+knn_cols = ['num_rooms', 'num_baths', 'square_meters', 'floor', 'num_crimes', 'price', 'floor_one_dummy']
 df_sub = df[knn_cols]
 imputer = KNNImputer(n_neighbors=7)
 imputed_data = imputer.fit_transform(df_sub)
@@ -185,11 +185,19 @@ df = df.dropna(axis= 0)
 neighb_mean_crime = df.groupby('neighborhood')['num_crimes'].mean()
 df['neighborhood_crime_encoded'] = df['neighborhood'].map(neighb_mean_crime)
 
+######################
+# Correlation matrix # 
+######################
+
+# Correlation matrix
+numeric_columns = df.select_dtypes(include=['int64', 'float64']).columns
+correlation_matrix = df[numeric_columns].corr()
+
 ########################
 # Feature Engiineering # 
 ########################
 
-df['rooms_per_bath'] = df['num_rooms']/df['num_baths']
+# df['rooms_per_bath'] = df['num_rooms']/df['num_baths']
 
 ##################
 # Splitting data #
@@ -222,10 +230,33 @@ mse = mean_squared_error(y_test, y_pred)
 print(r_squared)
 print(mse)
 
-
 ##############
 # Submitting #
 ##############
+
+# ######################
+# # OLLIE MODIFICATION #
+# ######################
+
+# # Also train model without the binary variables
+# df_no_binary = df[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy']]
+
+# y_train = df['price']
+# x_train = df_no_binary
+
+# model_no_binary = LinearRegression()
+# model_no_binary.fit(x_train, y_train)
+
+# ####################
+# # Linear Modelling #
+# ####################
+
+# # Running simple linear model without feature scaling, using  num_crimes and square_meters as predictors
+# y_train = df['price']
+# x_train = df[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy']]
+
+# model = LinearRegression()
+# model.fit(x_train, y_train)
 
 # # Test data import
 # data_path_test = "./data//test.csv"
@@ -249,6 +280,9 @@ print(mse)
 # df_test['num_rooms'] = df_test['num_rooms'].apply(lambda x: x if x<4 else np.nan)
 # df_test.loc[df_test['square_meters'] < 0, 'square_meters'] = np.nan
 
+# # Creation of a dummy variable for floor 1
+# df_test['floor_one_dummy'] = df_test['floor'].apply(lambda x: True if x==1 else False)
+
 # # Neighborhood encoding and dropping categorical variable
 # neighb_mean_crime = df_test.groupby('neighborhood')['num_crimes'].mean()
 # df_test['neighborhood_crime_encoded'] = df_test['neighborhood'].map(neighb_mean_crime)
@@ -259,6 +293,46 @@ print(mse)
 # for i in to_standardize:
 #     df_test[i] = (df_test[i] - np.mean(df_test[i])) / np.std(df_test[i])
 
+# # OLLIE NEW CODE: 
+# # Subsetting df for those which have a missing binary variable
+# binary_cols = ['is_furnished', 'has_pool', 'has_ac', 'accepts_pets']
+# df_missing = df_test[df_test[binary_cols].isna().any(axis=1)]
+
+# df_not_missing = df_test[~df_test[binary_cols].isna().any(axis=1)]
+
+# # Using KNN on not_missing df
+# imputer = KNNImputer(n_neighbors=3)
+# imputed_data = imputer.fit_transform(df_not_missing)
+# df_not_missing = pd.DataFrame(imputed_data, columns=df_not_missing.columns)
+# # print(round((df_not_missing.isnull().sum() / len(df_test) * 100), 2))
+
+# # Using info from the other dataframe to KNN this one
+# imputed_data_missing = imputer.transform(df_missing)  # Use transform instead of fit_transform
+# df_missing = pd.DataFrame(imputed_data_missing, columns=df_missing.columns)
+
+# # Drop binaries from df_missing
+# df_missing.drop(binary_cols, axis=1, inplace=True)
+
+# # Prediction for df_not_missing
+# x_test = df_not_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy']]
+# y_pred_not_missing = model.predict(x_test)
+
+# df_not_missing['pred'] = y_pred_not_missing
+
+# # Prediction for df_missing
+# x_test = df_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy']]
+# y_pred_missing = model_no_binary.predict(x_test)
+
+# df_missing['pred'] = y_pred_missing
+# new_df = pd.DataFrame()
+
+# # Creating final DataFrame
+# new_df['id'] = df_missing['id'].tolist() + df_not_missing['id'].tolist()
+# new_df['pred'] = df_missing['pred'].tolist() + df_not_missing['pred'].tolist()
+
+# new_df.to_csv('./prediction_sunday3pm.csv', index=False)
+
+# OLD CODE:
 # df = df.dropna(subset=['year_built'])
 # # KNN 
 # imputer = KNNImputer(n_neighbors=3)
