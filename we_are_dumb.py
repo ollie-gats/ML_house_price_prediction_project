@@ -58,6 +58,8 @@ df_train['price'] = winsorize(df_train['price'].dropna(), limits=(0.05, 0.05))
 # Merging dataframes
 df = pd.concat([df_train, df_test], axis=0).sort_values("id").reset_index()
 
+# Dropping supermarkets number
+df.drop('num_supermarkets', axis=1, inplace=True)
 
 # Dropping orientation (argue saying that this is hardly inputer and has a 30% of missing data) 
 df.drop('orientation', axis=1, inplace=True)
@@ -162,7 +164,7 @@ df_train = df[df['price'] != 0]
 
 
 # Train model without binary variables
-df_no_binary = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy', 'num_supermarkets']]
+df_no_binary = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy']]
 
 y_train = df_train['price']
 x_train = df_no_binary
@@ -173,7 +175,7 @@ model_no_binary.fit(x_train, y_train)
 
 # Train model with all variables
 y_train = df_train['price']
-x_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy', 'num_supermarkets']]
+x_train = df_train[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy']]
 
 model = LinearRegression()
 model.fit(x_train, y_train)
@@ -192,13 +194,13 @@ df_missing.drop(binary_cols, axis=1, inplace=True)
 
 
 # Prediction for df_not_missing
-x_test = df_not_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy', 'num_supermarkets']]
+x_test = df_not_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'is_furnished', 'has_pool', 'num_crimes', 'has_ac', 'accepts_pets', 'floor_one_dummy']]
 y_pred_not_missing = model.predict(x_test)
 
 df_not_missing['pred'] = y_pred_not_missing
 
 # Prediction for df_missing
-x_test = df_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy', 'num_supermarkets']]
+x_test = df_missing[['num_rooms', 'num_baths', 'square_meters', 'year_built', 'floor', 'num_crimes', 'neighborhood_crime_encoded', 'floor_one_dummy']]
 y_pred_missing = model_no_binary.predict(x_test)
 
 df_missing['pred'] = y_pred_missing
@@ -208,4 +210,4 @@ new_df = pd.DataFrame()
 new_df['id'] = df_missing['id'].tolist() + df_not_missing['id'].tolist()
 new_df['pred'] = df_missing['pred'].tolist() + df_not_missing['pred'].tolist()
 
-new_df.to_csv('./fixed_floor_old_ollie_file_with_supermarkets.csv', index=False)
+new_df.to_csv('./fixed_floor_old_ollie_file_with_supermarkets11.csv', index=False)
